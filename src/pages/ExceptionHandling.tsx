@@ -11,7 +11,16 @@ import {
   Search,
   Filter,
   ChevronRight,
+  Flame,
+  CheckCircle2,
+  XCircle,
+  ArrowRightLeft,
+  UserCheck,
+  Droplets,
+  PackageOpen,
+  Calendar,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/useAppStore';
 import { Modal } from '@/components/Modal';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -20,15 +29,19 @@ import {
   ExceptionType,
   ExceptionStatus,
   EXCEPTION_TYPE_LABELS,
+  InstrumentPackage,
+  TraceEvent,
 } from '@/types';
 
 export default function ExceptionHandling() {
+  const navigate = useNavigate();
   const exceptions = useAppStore((state) => state.exceptions);
   const packages = useAppStore((state) => state.packages);
   const batches = useAppStore((state) => state.sterilizationBatches);
   const addException = useAppStore((state) => state.addException);
   const updateException = useAppStore((state) => state.updateException);
   const closeException = useAppStore((state) => state.closeException);
+  const getTraceEvents = useAppStore((state) => state.getTraceEvents);
   const currentUser = useAppStore((state) => state.currentUser);
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -37,6 +50,10 @@ export default function ExceptionHandling() {
   const [statusFilter, setStatusFilter] = useState<ExceptionStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<ExceptionType | 'all'>('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  const [showTraceModal, setShowTraceModal] = useState(false);
+  const [tracePackage, setTracePackage] = useState<InstrumentPackage | null>(null);
+  const [traceEvents, setTraceEvents] = useState<TraceEvent[]>([]);
 
   const [formData, setFormData] = useState({
     type: 'damaged' as ExceptionType,
@@ -107,6 +124,80 @@ export default function ExceptionHandling() {
     setShowDetailModal(false);
     setSelectedException(null);
     setHandleResult('');
+  };
+
+  const handleViewTrace = (pkg: InstrumentPackage) => {
+    setTracePackage(pkg);
+    setTraceEvents(getTraceEvents(pkg.id));
+    setShowTraceModal(true);
+  };
+
+  const handleGoToTracePage = (pkg: InstrumentPackage) => {
+    setShowDetailModal(false);
+    setShowTraceModal(false);
+    navigate('/trace');
+  };
+
+  const getBatchPackages = (batchId: string) => {
+    const batch = batches.find((b) => b.id === batchId);
+    if (!batch) return [];
+    return packages.filter((p) => batch.packageIds.includes(p.id));
+  };
+
+  const getEventIcon = (type: string) => {
+    switch (type) {
+      case 'create':
+        return <Package className="h-4 w-4" />;
+      case 'usage':
+        return <UserCheck className="h-4 w-4" />;
+      case 'recycle':
+        return <PackageOpen className="h-4 w-4" />;
+      case 'cleaning':
+        return <Droplets className="h-4 w-4" />;
+      case 'quality':
+        return <CheckCircle className="h-4 w-4" />;
+      case 'sterilization':
+      case 'sterilization_end':
+        return <Flame className="h-4 w-4" />;
+      case 'release':
+        return <CheckCircle className="h-4 w-4" />;
+      case 'exception':
+        return <AlertTriangle className="h-4 w-4" />;
+      case 'borrow':
+      case 'return':
+        return <ArrowRightLeft className="h-4 w-4" />;
+      default:
+        return <Clock className="h-4 w-4" />;
+    }
+  };
+
+  const getEventColor = (type: string) => {
+    switch (type) {
+      case 'create':
+        return 'bg-primary-100 text-primary-600';
+      case 'usage':
+        return 'bg-success-100 text-success-600';
+      case 'recycle':
+        return 'bg-warning-100 text-warning-600';
+      case 'cleaning':
+        return 'bg-primary-100 text-primary-600';
+      case 'quality':
+        return 'bg-success-100 text-success-600';
+      case 'sterilization':
+        return 'bg-danger-100 text-danger-600';
+      case 'sterilization_end':
+        return 'bg-success-100 text-success-600';
+      case 'release':
+        return 'bg-success-100 text-success-600';
+      case 'exception':
+        return 'bg-danger-100 text-danger-600';
+      case 'borrow':
+        return 'bg-warning-100 text-warning-600';
+      case 'return':
+        return 'bg-success-100 text-success-600';
+      default:
+        return 'bg-neutral-100 text-neutral-600';
+    }
   };
 
   const typeColors: Record<ExceptionType, string> = {
@@ -396,7 +487,7 @@ export default function ExceptionHandling() {
         isOpen={showDetailModal}
         onClose={() => setShowDetailModal(false)}
         title="异常详情"
-        size="lg"
+        size="xl"
         footer={
           selectedException?.status === 'pending' ? (
             <>
@@ -446,7 +537,7 @@ export default function ExceptionHandling() {
         }
       >
         {selectedException && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="flex items-center gap-3">
               <span
                 className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
@@ -507,6 +598,49 @@ export default function ExceptionHandling() {
               )}
             </div>
 
+            {/* 关联批次的器械包列表 */}
+            {selectedException.relatedBatchId && (
+              <div>
+                <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-neutral-700">
+                  <Flame className="h-4 w-4 text-danger-500" />
+                  批次关联器械包
+                  <span className="text-xs font-normal text-neutral-500">
+                    （点击可查看追溯链路）
+                  </span>
+                </p>
+                <div className="space-y-2">
+                  {getBatchPackages(selectedException.relatedBatchId).map((pkg) => (
+                    <div
+                      key={pkg.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleViewTrace(pkg);
+                      }}
+                      className="flex cursor-pointer items-center justify-between rounded-lg border border-neutral-200 p-3 transition-colors hover:border-primary-300 hover:bg-primary-50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-100">
+                          <Package className="h-4 w-4 text-primary-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-neutral-800">
+                            {pkg.name}
+                          </p>
+                          <p className="text-xs text-neutral-500">
+                            {pkg.barcode}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={pkg.status} size="sm" />
+                        <ChevronRight className="h-4 w-4 text-neutral-400" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {selectedException.status === 'processing' && (
               <div>
                 <p className="mb-1.5 text-sm font-medium text-neutral-700">
@@ -533,6 +667,163 @@ export default function ExceptionHandling() {
                 </p>
               </div>
             )}
+          </div>
+        )}
+      </Modal>
+
+      {/* 追溯详情弹窗 */}
+      <Modal
+        isOpen={showTraceModal}
+        onClose={() => setShowTraceModal(false)}
+        title="器械包追溯链路"
+        size="xl"
+        footer={
+          tracePackage && (
+            <>
+              <button
+                onClick={() => setShowTraceModal(false)}
+                className="rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50 transition-colors"
+              >
+                关闭
+              </button>
+              <button
+                onClick={() => handleGoToTracePage(tracePackage)}
+                className="flex items-center gap-2 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600 transition-colors"
+              >
+                <Search className="h-4 w-4" />
+                前往追溯查询页
+              </button>
+            </>
+          )
+        }
+      >
+        {tracePackage && (
+          <div className="space-y-6">
+            {/* 器械包基本信息 */}
+            <div className="rounded-xl bg-neutral-50 p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h4 className="text-lg font-semibold text-neutral-800">
+                    {tracePackage.name}
+                  </h4>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    条码：{tracePackage.barcode}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {tracePackage.instruments.map((inst, idx) => (
+                      <span
+                        key={idx}
+                        className="rounded-md bg-white px-2 py-1 text-xs text-neutral-600 ring-1 ring-neutral-200"
+                      >
+                        {inst}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <StatusBadge status={tracePackage.status} />
+              </div>
+            </div>
+
+            {/* 时间轴追溯链路 */}
+            <div>
+              <h5 className="mb-4 text-sm font-semibold text-neutral-700">
+                完整追溯链路
+              </h5>
+              <div className="relative">
+                {traceEvents.map((event, index) => (
+                  <div key={event.id} className="flex gap-4">
+                    <div className="relative flex flex-col items-center">
+                      <div
+                        className={`flex h-9 w-9 items-center justify-center rounded-full ring-4 ring-white ${getEventColor(
+                          event.type
+                        )}`}
+                      >
+                        {getEventIcon(event.type)}
+                      </div>
+                      {index < traceEvents.length - 1 && (
+                        <div className="w-0.5 flex-1 bg-neutral-200" />
+                      )}
+                    </div>
+
+                    <div className="pb-6 flex-1">
+                      <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-neutral-100">
+                        <div className="flex items-center justify-between">
+                          <h6 className="font-medium text-neutral-800">
+                            {event.title}
+                          </h6>
+                          <span className="text-xs text-neutral-500">
+                            {formatDateTime(event.time)}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          操作人：{event.operator}
+                        </p>
+
+                        {Object.keys(event.details).length > 0 && (
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                            {Object.entries(event.details).map(([key, value]) => (
+                              <div
+                                key={key}
+                                className="flex items-center gap-2 rounded bg-neutral-50 px-2 py-1.5"
+                              >
+                                <span className="text-neutral-500">
+                                  {key === 'patient'
+                                    ? '患者'
+                                    : key === 'chair'
+                                    ? '椅位'
+                                    : key === 'doctor'
+                                    ? '医生'
+                                    : key === 'batchNo'
+                                    ? '批次号'
+                                    : key === 'method'
+                                    ? '灭菌方式'
+                                    : key === 'temperature'
+                                    ? '温度(℃)'
+                                    : key === 'pressure'
+                                    ? '压力(kPa)'
+                                    : key === 'duration'
+                                    ? '时长(min)'
+                                    : key === 'validDays'
+                                    ? '有效期(天)'
+                                    : key === 'name'
+                                    ? '名称'
+                                    : key === 'barcode'
+                                    ? '条码'
+                                    : key === 'biologicalTest'
+                                    ? '生物监测'
+                                    : key === 'remark'
+                                    ? '备注'
+                                    : key === 'description'
+                                    ? '描述'
+                                    : key === 'status'
+                                    ? '状态'
+                                    : key === 'borrower'
+                                    ? '借出人'
+                                    : key}
+                                </span>
+                                <span className="font-medium text-neutral-700">
+                                  {typeof value === 'boolean'
+                                    ? value
+                                      ? '是'
+                                      : '否'
+                                    : String(value)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {traceEvents.length === 0 && (
+                  <div className="py-8 text-center text-sm text-neutral-500">
+                    暂无追溯记录
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </Modal>

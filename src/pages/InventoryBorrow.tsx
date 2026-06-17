@@ -25,6 +25,7 @@ export default function InventoryBorrow() {
   const getSterileInventory = useAppStore((state) => state.getSterileInventory);
   const getNearExpiryPackages = useAppStore((state) => state.getNearExpiryPackages);
   const getExpiredPackages = useAppStore((state) => state.getExpiredPackages);
+  const isPackageBorrowed = useAppStore((state) => state.isPackageBorrowed);
   const currentUser = useAppStore((state) => state.currentUser);
 
   const [activeTab, setActiveTab] = useState<'inventory' | 'borrow'>('inventory');
@@ -86,6 +87,10 @@ export default function InventoryBorrow() {
   };
 
   const handleOpenBorrow = (pkg: typeof packages[0]) => {
+    if (isPackageBorrowed(pkg.id)) {
+      alert('该器械包已被借出，无法重复借出');
+      return;
+    }
     setSelectedPackage(pkg);
     setBorrowForm({ borrower: '', remark: '' });
     setShowBorrowModal(true);
@@ -95,6 +100,10 @@ export default function InventoryBorrow() {
     if (!selectedPackage) return;
     if (!borrowForm.borrower) {
       alert('请填写借出人/单位');
+      return;
+    }
+    if (isPackageBorrowed(selectedPackage.id)) {
+      alert('该器械包已被借出，无法重复借出');
       return;
     }
 

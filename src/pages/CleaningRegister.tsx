@@ -85,13 +85,9 @@ export default function CleaningRegister() {
       operator: currentUser,
     };
 
-    addCleaningRecord(newRecord);
+    const createdRecord = addCleaningRecord(newRecord);
     updatePackageStatus(pkg.id, 'cleaning');
-
-    const createdRecord = cleaningRecords[cleaningRecords.length - 1];
-    if (createdRecord) {
-      setSelectedRecord({ ...createdRecord, ...newRecord, id: 'new' } as any);
-    }
+    setSelectedRecord(createdRecord);
 
     setBarcodeInput('');
     setPatientName('');

@@ -22,6 +22,39 @@ import {
 } from '@/mock/data';
 import { generateId, addDays, formatDateTime } from '@/utils/date';
 
+const STORAGE_KEY = 'dental-trace-data';
+
+interface PersistedData {
+  packages: InstrumentPackage[];
+  cleaningRecords: CleaningRecord[];
+  sterilizationBatches: SterilizationBatch[];
+  exceptions: ExceptionRecord[];
+  usageRecords: UsageRecord[];
+  borrowRecords: BorrowRecord[];
+}
+
+function loadFromStorage(): PersistedData | null {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.error('Failed to load data from localStorage:', e);
+  }
+  return null;
+}
+
+function saveToStorage(data: PersistedData) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.error('Failed to save data to localStorage:', e);
+  }
+}
+
+const storedData = loadFromStorage();
+
 interface AppState {
   packages: InstrumentPackage[];
   cleaningRecords: CleaningRecord[];
@@ -31,11 +64,14 @@ interface AppState {
   borrowRecords: BorrowRecord[];
   currentUser: string;
 
+  persist: () => void;
+  resetData: () => void;
+
   addPackage: (pkg: Omit<InstrumentPackage, 'id' | 'createTime' | 'status'>) => void;
   updatePackage: (id: string, updates: Partial<InstrumentPackage>) => void;
   updatePackageStatus: (id: string, status: PackageStatus) => void;
 
-  addCleaningRecord: (record: Omit<CleaningRecord, 'id' | 'createdAt'>) => void;
+  addCleaningRecord: (record: Omit<CleaningRecord, 'id' | 'createdAt'>) => CleaningRecord;
   updateCleaningRecord: (id: string, updates: Partial<CleaningRecord>) => void;
   updateCleaningSteps: (id: string, steps: Partial<CleaningSteps>) => void;
   updateCleaningParams: (id: string, params: Partial<CleaningParams>) => void;
@@ -60,20 +96,46 @@ interface AppState {
   getSterileInventory: () => InstrumentPackage[];
   getNearExpiryPackages: () => InstrumentPackage[];
   getExpiredPackages: () => InstrumentPackage[];
+  getAvailableBorrowPackages: () => InstrumentPackage[];
+  isPackageBorrowed: (packageId: string) => boolean;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  packages: mockPackages,
-  cleaningRecords: mockCleaningRecords,
-  sterilizationBatches: mockSterilizationBatches,
-  exceptions: mockExceptions,
-  usageRecords: mockUsageRecords,
-  borrowRecords: mockBorrowRecords,
+  packages: storedData?.packages ?? mockPackages,
+  cleaningRecords: storedData?.cleaningRecords ?? mockCleaningRecords,
+  sterilizationBatches: storedData?.sterilizationBatches ?? mockSterilizationBatches,
+  exceptions: storedData?.exceptions ?? mockExceptions,
+  usageRecords: storedData?.usageRecords ?? mockUsageRecords,
+  borrowRecords: storedData?.borrowRecords ?? mockBorrowRecords,
   currentUser: '张护士',
 
+  persist: () => {
+    const state = get();
+    saveToStorage({
+      packages: state.packages,
+      cleaningRecords: state.cleaningRecords,
+      sterilizationBatches: state.sterilizationBatches,
+      exceptions: state.exceptions,
+      usageRecords: state.usageRecords,
+      borrowRecords: state.borrowRecords,
+    });
+  },
+
+  resetData: () => {
+    set({
+      packages: mockPackages,
+      cleaningRecords: mockCleaningRecords,
+      sterilizationBatches: mockSterilizationBatches,
+      exceptions: mockExceptions,
+      usageRecords: mockUsageRecords,
+      borrowRecords: mockBorrowRecords,
+    });
+    localStorage.removeItem(STORAGE_KEY);
+  },
+
   addPackage: (pkg) =>
-    set((state) => ({
-      packages: [
+    set((state) => {
+      const newPackages = [
         ...state.packages,
         {
           ...pkg,
@@ -81,51 +143,118 @@ export const useAppStore = create<AppState>((set, get) => ({
           createTime: new Date().toISOString(),
           status: 'sterilized' as PackageStatus,
         },
-      ],
-    })),
+      ];
+      saveToStorage({
+        packages: newPackages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return { packages: newPackages };
+    }),
 
   updatePackage: (id, updates) =>
-    set((state) => ({
-      packages: state.packages.map((p) => (p.id === id ? { ...p, ...updates } : p)),
-    })),
+    set((state) => {
+      const newPackages = state.packages.map((p) => (p.id === id ? { ...p, ...updates } : p));
+      saveToStorage({
+        packages: newPackages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return { packages: newPackages };
+    }),
 
   updatePackageStatus: (id, status) =>
-    set((state) => ({
-      packages: state.packages.map((p) => (p.id === id ? { ...p, status } : p)),
-    })),
+    set((state) => {
+      const newPackages = state.packages.map((p) => (p.id === id ? { ...p, status } : p));
+      saveToStorage({
+        packages: newPackages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return { packages: newPackages };
+    }),
 
-  addCleaningRecord: (record) =>
-    set((state) => ({
-      cleaningRecords: [
-        ...state.cleaningRecords,
-        { ...record, id: generateId(), createdAt: new Date().toISOString() },
-      ],
-    })),
+  addCleaningRecord: (record) => {
+    const newRecord: CleaningRecord = {
+      ...record,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+    };
+    set((state) => {
+      const newCleaningRecords = [...state.cleaningRecords, newRecord];
+      saveToStorage({
+        packages: state.packages,
+        cleaningRecords: newCleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return { cleaningRecords: newCleaningRecords };
+    });
+    return newRecord;
+  },
 
   updateCleaningRecord: (id, updates) =>
-    set((state) => ({
-      cleaningRecords: state.cleaningRecords.map((r) =>
+    set((state) => {
+      const newCleaningRecords = state.cleaningRecords.map((r) =>
         r.id === id ? { ...r, ...updates } : r
-      ),
-    })),
+      );
+      saveToStorage({
+        packages: state.packages,
+        cleaningRecords: newCleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return { cleaningRecords: newCleaningRecords };
+    }),
 
   updateCleaningSteps: (id, steps) =>
-    set((state) => ({
-      cleaningRecords: state.cleaningRecords.map((r) =>
+    set((state) => {
+      const newCleaningRecords = state.cleaningRecords.map((r) =>
         r.id === id ? { ...r, steps: { ...r.steps, ...steps } } : r
-      ),
-    })),
+      );
+      saveToStorage({
+        packages: state.packages,
+        cleaningRecords: newCleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return { cleaningRecords: newCleaningRecords };
+    }),
 
   updateCleaningParams: (id, params) =>
-    set((state) => ({
-      cleaningRecords: state.cleaningRecords.map((r) =>
+    set((state) => {
+      const newCleaningRecords = state.cleaningRecords.map((r) =>
         r.id === id ? { ...r, params: { ...r.params, ...params } } : r
-      ),
-    })),
+      );
+      saveToStorage({
+        packages: state.packages,
+        cleaningRecords: newCleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return { cleaningRecords: newCleaningRecords };
+    }),
 
   completeQualityCheck: (id, passed, inspector, remark) =>
-    set((state) => ({
-      cleaningRecords: state.cleaningRecords.map((r) =>
+    set((state) => {
+      const newCleaningRecords = state.cleaningRecords.map((r) =>
         r.id === id
           ? {
               ...r,
@@ -137,40 +266,67 @@ export const useAppStore = create<AppState>((set, get) => ({
               },
             }
           : r
-      ),
-      packages: passed
+      );
+      const newPackages = passed
         ? state.packages.map((p) =>
             state.cleaningRecords.find((r) => r.id === id)?.packageId === p.id
               ? { ...p, status: 'cleaned' as PackageStatus }
               : p
           )
-        : state.packages,
-    })),
+        : state.packages;
+      saveToStorage({
+        packages: newPackages,
+        cleaningRecords: newCleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return {
+        cleaningRecords: newCleaningRecords,
+        packages: newPackages,
+      };
+    }),
 
   addSterilizationBatch: (batch) =>
-    set((state) => ({
-      sterilizationBatches: [
-        ...state.sterilizationBatches,
-        { ...batch, id: generateId(), startTime: new Date().toISOString(), status: 'running' },
-      ],
-      packages: state.packages.map((p) =>
+    set((state) => {
+      const newBatch: SterilizationBatch = {
+        ...batch,
+        id: generateId(),
+        startTime: new Date().toISOString(),
+        status: 'running',
+      };
+      const newSterilizationBatches = [...state.sterilizationBatches, newBatch];
+      const newPackages = state.packages.map((p) =>
         batch.packageIds.includes(p.id) ? { ...p, status: 'sterilizing' as PackageStatus } : p
-      ),
-    })),
+      );
+      saveToStorage({
+        packages: newPackages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: newSterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return {
+        sterilizationBatches: newSterilizationBatches,
+        packages: newPackages,
+      };
+    }),
 
   completeSterilization: (batchId, biologicalTest) =>
-    set((state) => ({
-      sterilizationBatches: state.sterilizationBatches.map((b) =>
+    set((state) => {
+      const newSterilizationBatches = state.sterilizationBatches.map((b) =>
         b.id === batchId
           ? {
               ...b,
               endTime: new Date().toISOString(),
               biologicalTest,
-              status: biologicalTest === 'passed' ? 'completed' : 'failed',
+              status: biologicalTest === 'passed' ? ('completed' as const) : ('failed' as const),
             }
           : b
-      ),
-      packages:
+      );
+      const newPackages =
         biologicalTest === 'failed'
           ? state.packages.map((p) =>
               state.sterilizationBatches
@@ -179,8 +335,20 @@ export const useAppStore = create<AppState>((set, get) => ({
                 ? { ...p, status: 'abnormal' as PackageStatus }
                 : p
             )
-          : state.packages,
-    })),
+          : state.packages;
+      saveToStorage({
+        packages: newPackages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: newSterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return {
+        sterilizationBatches: newSterilizationBatches,
+        packages: newPackages,
+      };
+    }),
 
   releaseBatch: (batchId, releaser1, releaser2) =>
     set((state) => {
@@ -189,72 +357,117 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const expireDate = addDays(new Date(), batch.validDays);
 
+      const newSterilizationBatches = state.sterilizationBatches.map((b) =>
+        b.id === batchId
+          ? {
+              ...b,
+              releaser1,
+              releaser2,
+              releaseTime: new Date().toISOString(),
+              status: 'released' as const,
+            }
+          : b
+      );
+      const newPackages = state.packages.map((p) =>
+        batch.packageIds.includes(p.id)
+          ? {
+              ...p,
+              status: 'sterilized' as PackageStatus,
+              sterilizationExpireAt: expireDate.toISOString(),
+            }
+          : p
+      );
+      saveToStorage({
+        packages: newPackages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: newSterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
       return {
-        sterilizationBatches: state.sterilizationBatches.map((b) =>
-          b.id === batchId
-            ? {
-                ...b,
-                releaser1,
-                releaser2,
-                releaseTime: new Date().toISOString(),
-                status: 'released',
-              }
-            : b
-        ),
-        packages: state.packages.map((p) =>
-          batch.packageIds.includes(p.id)
-            ? {
-                ...p,
-                status: 'sterilized' as PackageStatus,
-                sterilizationExpireAt: expireDate.toISOString(),
-              }
-            : p
-        ),
+        sterilizationBatches: newSterilizationBatches,
+        packages: newPackages,
       };
     }),
 
   addException: (exception) =>
-    set((state) => ({
-      exceptions: [
-        ...state.exceptions,
-        { ...exception, id: generateId(), reportTime: new Date().toISOString(), status: 'pending' },
-      ],
-      packages: exception.relatedPackageId
+    set((state) => {
+      const newException: ExceptionRecord = {
+        ...exception,
+        id: generateId(),
+        reportTime: new Date().toISOString(),
+        status: 'pending',
+      };
+      const newExceptions = [...state.exceptions, newException];
+      const newPackages = exception.relatedPackageId
         ? state.packages.map((p) =>
             p.id === exception.relatedPackageId
               ? { ...p, status: 'abnormal' as PackageStatus }
               : p
           )
-        : state.packages,
-    })),
+        : state.packages;
+      saveToStorage({
+        packages: newPackages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: newExceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return {
+        exceptions: newExceptions,
+        packages: newPackages,
+      };
+    }),
 
   updateException: (id, updates) =>
-    set((state) => ({
-      exceptions: state.exceptions.map((e) => (e.id === id ? { ...e, ...updates } : e)),
-    })),
+    set((state) => {
+      const newExceptions = state.exceptions.map((e) => (e.id === id ? { ...e, ...updates } : e));
+      saveToStorage({
+        packages: state.packages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: newExceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return { exceptions: newExceptions };
+    }),
 
   closeException: (id, handler, result) =>
-    set((state) => ({
-      exceptions: state.exceptions.map((e) =>
+    set((state) => {
+      const newExceptions = state.exceptions.map((e) =>
         e.id === id
           ? {
               ...e,
-              status: 'closed',
+              status: 'closed' as const,
               handler,
               handleResult: result,
               handleTime: new Date().toISOString(),
             }
           : e
-      ),
-    })),
+      );
+      saveToStorage({
+        packages: state.packages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: newExceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return { exceptions: newExceptions };
+    }),
 
   addUsageRecord: (record) =>
-    set((state) => ({
-      usageRecords: [
-        ...state.usageRecords,
-        { ...record, id: generateId(), usedAt: new Date().toISOString() },
-      ],
-      packages: state.packages.map((p) =>
+    set((state) => {
+      const newUsageRecord: UsageRecord = {
+        ...record,
+        id: generateId(),
+        usedAt: new Date().toISOString(),
+      };
+      const newUsageRecords = [...state.usageRecords, newUsageRecord];
+      const newPackages = state.packages.map((p) =>
         p.id === record.packageId
           ? {
               ...p,
@@ -264,27 +477,93 @@ export const useAppStore = create<AppState>((set, get) => ({
               currentChair: record.chairNumber,
             }
           : p
-      ),
-    })),
+      );
+      saveToStorage({
+        packages: newPackages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: newUsageRecords,
+        borrowRecords: state.borrowRecords,
+      });
+      return {
+        usageRecords: newUsageRecords,
+        packages: newPackages,
+      };
+    }),
 
   addBorrowRecord: (record) =>
-    set((state) => ({
-      borrowRecords: [
-        ...state.borrowRecords,
-        { ...record, id: generateId(), borrowTime: new Date().toISOString(), status: 'borrowed' },
-      ],
-    })),
+    set((state) => {
+      const newBorrowRecord: BorrowRecord = {
+        ...record,
+        id: generateId(),
+        borrowTime: new Date().toISOString(),
+        status: 'borrowed',
+      };
+      const newBorrowRecords = [...state.borrowRecords, newBorrowRecord];
+      saveToStorage({
+        packages: state.packages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: newBorrowRecords,
+      });
+      return { borrowRecords: newBorrowRecords };
+    }),
 
   returnBorrow: (id) =>
-    set((state) => ({
-      borrowRecords: state.borrowRecords.map((r) =>
-        r.id === id ? { ...r, status: 'returned', returnTime: new Date().toISOString() } : r
-      ),
-    })),
+    set((state) => {
+      const newBorrowRecords = state.borrowRecords.map((r) =>
+        r.id === id ? { ...r, status: 'returned' as const, returnTime: new Date().toISOString() } : r
+      );
+      saveToStorage({
+        packages: state.packages,
+        cleaningRecords: state.cleaningRecords,
+        sterilizationBatches: state.sterilizationBatches,
+        exceptions: state.exceptions,
+        usageRecords: state.usageRecords,
+        borrowRecords: newBorrowRecords,
+      });
+      return { borrowRecords: newBorrowRecords };
+    }),
 
   getPackageById: (id) => get().packages.find((p) => p.id === id),
 
   getPackageByBarcode: (barcode) => get().packages.find((p) => p.barcode === barcode),
+
+  isPackageBorrowed: (packageId) => {
+    const state = get();
+    return state.borrowRecords.some(
+      (r) => r.packageId === packageId && r.status === 'borrowed'
+    );
+  },
+
+  getAvailableBorrowPackages: () => {
+    const state = get();
+    const borrowedPackageIds = state.borrowRecords
+      .filter((r) => r.status === 'borrowed')
+      .map((r) => r.packageId);
+    return state.packages.filter(
+      (p) => p.status === 'sterilized' && !borrowedPackageIds.includes(p.id)
+    );
+  },
+
+  getSterileInventory: () => {
+    const state = get();
+    const borrowedPackageIds = state.borrowRecords
+      .filter((r) => r.status === 'borrowed')
+      .map((r) => r.packageId);
+    return state.packages
+      .filter(
+        (p) => p.status === 'sterilized' && !borrowedPackageIds.includes(p.id)
+      )
+      .sort((a, b) => {
+        if (!a.sterilizationExpireAt) return 1;
+        if (!b.sterilizationExpireAt) return -1;
+        return new Date(a.sterilizationExpireAt).getTime() - new Date(b.sterilizationExpireAt).getTime();
+      });
+  },
 
   getTraceEvents: (packageId) => {
     const state = get();
@@ -407,17 +686,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     });
 
-    return events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-  },
-
-  getSterileInventory: () => {
-    return get()
-      .packages.filter((p) => p.status === 'sterilized')
-      .sort((a, b) => {
-        if (!a.sterilizationExpireAt) return 1;
-        if (!b.sterilizationExpireAt) return -1;
-        return new Date(a.sterilizationExpireAt).getTime() - new Date(b.sterilizationExpireAt).getTime();
+    const borrows = state.borrowRecords.filter((b) => b.packageId === packageId);
+    borrows.forEach((b) => {
+      events.push({
+        id: `borrow-${b.id}`,
+        type: 'borrow',
+        title: b.status === 'borrowed' ? '借出' : '借出',
+        time: b.borrowTime,
+        operator: b.borrower,
+        details: { borrower: b.borrower, remark: b.remark, status: b.status },
       });
+      if (b.returnTime) {
+        events.push({
+          id: `return-${b.id}`,
+          type: 'return',
+          title: '归还',
+          time: b.returnTime,
+          operator: b.borrower,
+          details: { borrower: b.borrower },
+        });
+      }
+    });
+
+    return events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
   },
 
   getNearExpiryPackages: () => {

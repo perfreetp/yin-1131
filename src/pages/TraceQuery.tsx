@@ -16,6 +16,7 @@ import {
   UserCheck,
   XCircle,
   Filter,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { Modal } from '@/components/Modal';
@@ -110,6 +111,10 @@ export default function TraceQuery() {
         return <CheckCircle className="h-4 w-4" />;
       case 'exception':
         return <AlertTriangle className="h-4 w-4" />;
+      case 'borrow':
+        return <ArrowRightLeft className="h-4 w-4" />;
+      case 'return':
+        return <ArrowRightLeft className="h-4 w-4" />;
       default:
         return <Clock className="h-4 w-4" />;
     }
@@ -135,6 +140,10 @@ export default function TraceQuery() {
         return 'bg-success-100 text-success-600';
       case 'exception':
         return 'bg-danger-100 text-danger-600';
+      case 'borrow':
+        return 'bg-warning-100 text-warning-600';
+      case 'return':
+        return 'bg-success-100 text-success-600';
       default:
         return 'bg-neutral-100 text-neutral-600';
     }
@@ -434,6 +443,8 @@ export default function TraceQuery() {
                                     ? '描述'
                                     : key === 'status'
                                     ? '状态'
+                                    : key === 'borrower'
+                                    ? '借出人'
                                     : key}
                                 </span>
                                 <span className="font-medium text-neutral-700">
